@@ -1,0 +1,11 @@
+services:
+  elt:
+    build: .
+    image: retail-elt-pipeline:latest
+    environment:
+      ELT_ENGINE: ${ELT_ENGINE:-duckdb}
+      ELT_FAIL_ON_QUALITY_ERROR: ${ELT_FAIL_ON_QUALITY_ERROR:-1}
+    volumes:
+      # Warehouse and mart exports land on the host so you can inspect them.
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts

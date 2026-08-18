@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Unit and integration tests
+        run: python -m pytest tests -q
+        env:
+          PYTHONPATH: src
+
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      # The pipeline must run green end to end, and the data quality suite is
+      # the gate: any error-severity violation exits non-zero and fails CI.
+      - name: Run the pipeline on DuckDB
+        run: |
+          python -m pipeline.generate_source_data --rows 8000
+          python -m pipeline.run run
+        env:
+          PYTHONPATH: src
+
+      # The SQL is written dialect-neutral on purpose. This job is what keeps
+      # it that way: a DuckDB-only function will fail here.
+      - name: Run the same models on SQLite
+        run: python -m pipeline.run run
+        env:
+          PYTHONPATH: src
+          ELT_ENGINE: sqlite
+          ELT_WAREHOUSE: data/warehouse.sqlite
+
+      - name: Upload data quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-quality-report
+          path: artifacts/
+          if-no-files-found: ignore

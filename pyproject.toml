@@ -1,0 +1,21 @@
+[project]
+name = "retail-elt-pipeline"
+version = "0.1.0"
+description = "Batch ELT: raw source files to a tested dimensional warehouse"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+# TestSpec is a dataclass, not a test class.
+python_classes = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+exclude = ["airflow/dags"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

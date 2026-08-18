@@ -1,0 +1,193 @@
+# Data contracts for every model in the warehouse.
+#
+# Each test compiles to a query that returns violating rows; zero rows is a
+# pass. severity: warn records the failure and lets the run finish, severity:
+# error (the default) fails the pipeline.
+
+models:
+  - name: stg_customers
+    tests:
+      - row_count_between: {min: 100, max: 200000}
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+      - name: country
+        tests:
+          - not_null
+      - name: segment
+        tests:
+          - accepted_values: {values: [consumer, business, education, unknown]}
+      - name: is_marketing_opt_in
+        tests:
+          - accepted_values: {values: [0, 1]}
+
+  - name: stg_products
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: list_price
+        tests:
+          - not_null
+          - non_negative
+      - name: category
+        tests:
+          - accepted_values: {values: [coffee, tea, equipment, accessories, subscription]}
+      - name: unit_margin
+        # A negative margin is a pricing error worth seeing, not worth stopping
+        # the nightly run for.
+        tests:
+          - non_negative: {severity: warn}
+
+  - name: stg_orders
+    tests:
+      - row_count_between: {min: 100, max: 500000}
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - unique
+      - name: ordered_at
+        tests:
+          - not_null
+      - name: status
+        tests:
+          - accepted_values: {values: [completed, cancelled, refunded]}
+      - name: currency
+        tests:
+          - accepted_values: {values: [EUR, USD, GBP]}
+      - name: order_hour
+        tests:
+          - between: {min: 0, max: 23}
+      - name: shipping_cost
+        tests:
+          - non_negative
+
+  - name: stg_order_lines
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - relationships: {to: stg_orders, field: order_id}
+      - name: product_id
+        tests:
+          - not_null
+          - relationships: {to: stg_products, field: product_id}
+      - name: unit_price
+        tests:
+          - non_negative
+      - name: discount_pct
+        tests:
+          - between: {min: 0, max: 1}
+
+  - name: dim_customer
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_product
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: margin_band
+        tests:
+          - accepted_values: {values: [high, medium, low, unknown]}
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        tests:
+          - not_null
+          - unique
+      - name: iso_weekday
+        tests:
+          - between: {min: 1, max: 7}
+      - name: quarter_number
+        tests:
+          - between: {min: 1, max: 4}
+
+  - name: fct_orders
+    tests:
+      # The rollup must reconcile with the line grain. This is the check that
+      # actually catches a broken join, and it is worth failing the run over.
+      - expression:
+          condition: ABS(gross_amount - discount_amount - net_amount) < 0.05
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - unique
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships: {to: dim_customer, field: customer_id}
+      - name: order_date
+        tests:
+          - not_null
+          - relationships: {to: dim_date, field: date_key}
+      - name: is_orphan_customer
+        # Orphans are expected at a low rate because the CRM extract lags the
+        # order extract. Alert, do not fail.
+        tests:
+          - accepted_values: {values: [0], severity: warn}
+
+  - name: fct_order_lines
+    columns:
+      - name: order_line_key
+        tests:
+          - not_null
+          - unique
+      - name: order_id
+        tests:
+          - relationships: {to: fct_orders, field: order_id}
+      - name: category
+        tests:
+          - not_null: {severity: warn}
+
+  - name: mart_daily_revenue
+    columns:
+      - name: order_date
+        tests:
+          - not_null
+      - name: net_revenue
+        tests:
+          - non_negative
+      - name: average_order_value
+        tests:
+          - between: {min: 0, max: 100000}
+
+  - name: mart_customer_value
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+      - name: value_tier
+        tests:
+          - accepted_values: {values: [platinum, gold, silver, bronze, no_purchase]}
+
+  - name: mart_category_performance
+    columns:
+      - name: category
+        tests:
+          - not_null
+      - name: gross_margin_pct
+        tests:
+          - between: {min: -200, max: 100}
+
+  - name: mart_channel_funnel
+    columns:
+      - name: event_month
+        tests:
+          - not_null
+          - unique
+      - name: cart_rate_pct
+        tests:
+          - between: {min: 0, max: 100}
